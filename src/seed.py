@@ -28,24 +28,38 @@ ACCOUNTS = [
 ]
 
 # Your housemates (the people whose money passes through your account).
+# Note: Michael's bank transfers arrive under two name spellings
+# ("MICHAEL DEGROOT" for rent, "Michael Degroot" for his bill share); the
+# classification rules fold both onto this single canonical housemate.
 HOUSEMATES = [
-    "Alex",
-    "Sam",
+    "Joseph Buckett",
+    "Michael Degroot",
 ]
 
 # Recurring shared costs.
+# "Bills" is the combined utilities pot (Octopus energy + Thames Water +
+# Virgin Media broadband), which we split three ways. We keep it as one group
+# because the housemates settle their utilities share as a single transfer
+# rather than per-bill, so a single ledger line is the honest unit.
 BILL_GROUPS = [
-    {"name": "Rent", "cadence": "monthly", "notes": None},
-    {"name": "Energy", "cadence": "monthly", "notes": None},
-    {"name": "Internet", "cadence": "monthly", "notes": None},
+    {"name": "Rent", "cadence": "monthly",
+     "notes": "Whole-house rent paid to Joe Crosby; James pays the remainder."},
+    {"name": "Bills", "cadence": "monthly",
+     "notes": "Octopus + Thames Water + Virgin Media, split three ways."},
 ]
 
 # What each housemate is EXPECTED to pay you, per bill group, per cadence.
 # Amounts are in POUNDS here for readability; converted to pennies on insert.
 # Keyed by (housemate_name, bill_group_name) -> expected pounds.
+#
+# Rent: housemates pay agreed fixed amounts (Joseph ~£1,158, Michael £960) and
+#       James covers whatever is left of the ~£3,467 monthly rent.
+# Bills: ~£265/mo of shared utilities split three ways -> ~£88.30 each.
 EXPECTED_CONTRIBUTIONS = {
-    ("Alex", "Rent"): 325.00,
-    ("Sam", "Rent"): 325.00,
+    ("Joseph Buckett", "Rent"): 1158.00,
+    ("Michael Degroot", "Rent"): 960.00,
+    ("Joseph Buckett", "Bills"): 88.30,
+    ("Michael Degroot", "Bills"): 88.30,
 }
 # -------------------------------------------------------------------------
 
