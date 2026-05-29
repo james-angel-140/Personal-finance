@@ -1,6 +1,7 @@
 # Runtime
 anthropic>=0.49,<1.0
 python-dotenv>=1.0,<2.0
+cryptography>=42,<46   # AES-GCM for the encrypted static dashboard export
 
 # Dev / test
 pytest>=8.0,<9.0

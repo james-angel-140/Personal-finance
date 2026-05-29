@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Finances</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Passphrase gate. The data blob is encrypted; nothing renders until the
+       passphrase decrypts it in-browser. The passphrase is never stored. -->
+  <main id="gate" class="gate">
+    <form id="unlock-form" class="unlock-card" autocomplete="off">
+      <h1>🔒 Finances</h1>
+      <p class="muted">Enter your passphrase to decrypt this dashboard.</p>
+      <input id="passphrase" type="password" inputmode="text"
+             placeholder="Passphrase" autocomplete="current-password"
+             autocapitalize="off" autocorrect="off" spellcheck="false" required>
+      <button id="unlock-btn" type="submit">Unlock</button>
+      <p id="gate-error" class="error" role="alert" hidden></p>
+      <p class="muted tiny">Decrypted locally on this device. Nothing is sent anywhere.</p>
+    </form>
+  </main>
+
+  <!-- Dashboard (hidden until unlocked) -->
+  <div id="dashboard" hidden>
+    <header class="topbar">
+      <h1>Finances</h1>
+      <span id="freshness" class="muted tiny"></span>
+    </header>
+
+    <section class="cards" id="headline-cards" aria-label="This month"></section>
+
+    <section class="panel">
+      <h2>Monthly cashflow <span class="muted tiny">— real money, housemate pass-through removed</span></h2>
+      <div id="cashflow-chart" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2 id="category-title">Spend by category</h2>
+      <div id="category-chart" class="chart"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Housemate ledger <span class="muted tiny">— this month</span></h2>
+      <div id="ledger" class="ledger-wrap"></div>
+    </section>
+
+    <footer class="footer">
+      <div id="accounts" class="muted tiny"></div>
+      <button id="lock-btn" type="button" class="link-btn">Lock</button>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
