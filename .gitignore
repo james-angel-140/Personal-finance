@@ -1,0 +1,32 @@
+# Secrets — NEVER commit these
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+tokens.json
+
+# Your financial data — keep it local only
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.csv
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node / dashboard
+node_modules/
+dist/
+.cache/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
