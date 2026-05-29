@@ -52,14 +52,15 @@ BILL_GROUPS = [
 # Amounts are in POUNDS here for readability; converted to pennies on insert.
 # Keyed by (housemate_name, bill_group_name) -> expected pounds.
 #
-# Rent: housemates pay agreed fixed amounts (Joseph ~£1,158, Michael £960) and
+# Rent: housemates pay agreed fixed amounts (Joseph £1,158, Michael £960) and
 #       James covers whatever is left of the ~£3,467 monthly rent.
-# Bills: ~£265/mo of shared utilities split three ways -> ~£88.30 each.
+# Bills: only Michael pays a separate utilities share (~£83/mo; the exact split
+#        drifts with the bills). Joseph's £1,158 is all-inclusive, so he has no
+#        separate Bills line.
 EXPECTED_CONTRIBUTIONS = {
     ("Joseph Buckett", "Rent"): 1158.00,
     ("Michael Degroot", "Rent"): 960.00,
-    ("Joseph Buckett", "Bills"): 88.30,
-    ("Michael Degroot", "Bills"): 88.30,
+    ("Michael Degroot", "Bills"): 82.76,
 }
 # -------------------------------------------------------------------------
 
@@ -113,8 +114,10 @@ def seed(db_path: str | None = None) -> None:
                 bg_ids[bg["name"]] = row["id"]
 
         # Expected contributions (one row per housemate per bill group; upsert).
+        wanted: set[tuple[int, int]] = set()
         for (hm_name, bg_name), pounds in EXPECTED_CONTRIBUTIONS.items():
             hm_id, bg_id = hm_ids[hm_name], bg_ids[bg_name]
+            wanted.add((hm_id, bg_id))
             pennies = _pounds_to_pennies(pounds)
             existing = conn.execute(
                 "SELECT id FROM contributions WHERE housemate_id = ? AND bill_group_id = ?",
@@ -131,6 +134,15 @@ def seed(db_path: str | None = None) -> None:
                     "UPDATE contributions SET expected_pennies = ? WHERE id = ?",
                     (pennies, existing["id"]),
                 )
+
+        # Prune contributions no longer declared above, so this file stays the
+        # single source of truth (e.g. removing a housemate's Bills share here
+        # deletes the stale row rather than leaving it to haunt the ledger).
+        for row in conn.execute(
+            "SELECT id, housemate_id, bill_group_id FROM contributions"
+        ).fetchall():
+            if (row["housemate_id"], row["bill_group_id"]) not in wanted:
+                conn.execute("DELETE FROM contributions WHERE id = ?", (row["id"],))
 
         conn.commit()
         print("Seed complete.")

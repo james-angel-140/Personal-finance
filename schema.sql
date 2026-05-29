@@ -104,8 +104,11 @@ SELECT
 FROM transactions t
 WHERE t.exclude_from_totals = 0;
 
--- Housemate ledger: expected vs actually received, per housemate per bill group.
--- A positive 'balance_pennies' means the housemate still owes you that amount.
+-- Housemate ledger: expected vs actually received THIS MONTH, per housemate
+-- per bill group. A positive 'balance_pennies' means the housemate still owes
+-- you that amount for the current month. Received is scoped to the current
+-- calendar month so it is comparable to the monthly 'expected' (otherwise
+-- all-time receipts dwarf a single month's expectation).
 CREATE VIEW v_housemate_ledger AS
 SELECT
     h.id   AS housemate_id,
@@ -122,4 +125,5 @@ LEFT JOIN transactions t
     ON t.housemate_id  = c.housemate_id
     AND t.bill_group_id = c.bill_group_id
     AND t.amount_pennies > 0          -- reimbursements are money coming IN
+    AND substr(t.posted_at, 1, 7) = strftime('%Y-%m', 'now')
 GROUP BY h.id, bg.id;

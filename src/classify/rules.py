@@ -23,8 +23,14 @@ SHARED_BILL_PAYEES = ("Octopus Energy", "Thames Water", "Virgin Media")
 HOUSE_SIZE = 3  # James + two housemates
 
 # Housemate reimbursements at or above this size are rent; smaller ones are the
-# utilities share. (Joseph ~£1,158 / Michael £960 rent vs ~£88 bills.)
+# utilities share. (Joseph £1,158 / Michael £960 rent vs Michael's ~£83 bills.)
 RENT_VS_BILLS_THRESHOLD_PENNIES = 50000
+
+# Only these housemates pay a separate, recurring utilities share, so their
+# sub-rent transfers book to the Bills ledger. Joseph's £1,158 is all-inclusive;
+# his occasional small transfers are one-off reimbursements, not a bills share,
+# so they stay untagged (pass-through, but not tied to any bill group).
+BILLS_PAYERS = ("Michael Degroot",)
 
 
 def apply_pot_transfers(conn: sqlite3.Connection) -> int:
@@ -64,10 +70,13 @@ def apply_housemate_reimbursements(conn: sqlite3.Connection) -> int:
 
     Matching is case-insensitive against the housemates table, which folds
     Michael's two transfer spellings ("MICHAEL DEGROOT" / "Michael Degroot")
-    onto one person. Larger transfers are booked to Rent, smaller ones to Bills.
+    onto one person. Bill group is assigned as: large transfers -> Rent; small
+    transfers from a recurring bills-payer -> Bills; everything else (e.g.
+    Joseph's ad-hoc odds and ends) -> untagged, so it doesn't distort any ledger.
     """
+    payers = ",".join("?" for _ in BILLS_PAYERS)
     cur = conn.execute(
-        """
+        f"""
         UPDATE transactions
         SET exclude_from_totals = 1,
             personal_pennies    = 0,
@@ -77,13 +86,13 @@ def apply_housemate_reimbursements(conn: sqlite3.Connection) -> int:
                 SELECT h.id FROM housemates h
                 WHERE upper(h.name) = upper(transactions.counterparty)
             ),
-            bill_group_id = (
-                SELECT bg.id FROM bill_groups bg
-                WHERE bg.name = CASE
-                    WHEN transactions.amount_pennies >= ? THEN 'Rent'
-                    ELSE 'Bills'
-                END
-            )
+            bill_group_id = CASE
+                WHEN amount_pennies >= ?
+                    THEN (SELECT id FROM bill_groups WHERE name = 'Rent')
+                WHEN upper(counterparty) IN ({payers})
+                    THEN (SELECT id FROM bill_groups WHERE name = 'Bills')
+                ELSE NULL
+            END
         WHERE amount_pennies > 0
           AND EXISTS (
               SELECT 1 FROM housemates h
@@ -91,7 +100,7 @@ def apply_housemate_reimbursements(conn: sqlite3.Connection) -> int:
           )
           AND COALESCE(classified_by, '') != 'manual'
         """,
-        (RENT_VS_BILLS_THRESHOLD_PENNIES,),
+        (RENT_VS_BILLS_THRESHOLD_PENNIES, *(p.upper() for p in BILLS_PAYERS)),
     )
     return cur.rowcount
 
