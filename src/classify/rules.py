@@ -17,6 +17,13 @@ import sqlite3
 # The landlord: one whole-house rent payment goes out to them each month.
 LANDLORD = "Joe Crosby"
 
+# The account owner. Money "Sent from Monzo" to yourself is an internal transfer
+# between your own accounts (here: paying off the HSBC credit card), not real
+# spending. It's excluded from headline totals like pot transfers are — and
+# excluding it also avoids double-counting once the card's actual purchases are
+# ingested from HSBC.
+ACCOUNT_OWNER = "James Angel"
+
 # Utilities we split evenly across the three people in the house. Each line is
 # a real outflow from James's account, but only a third of it is genuinely his.
 SHARED_BILL_PAYEES = ("Octopus Energy", "Thames Water", "Virgin Media")
@@ -51,6 +58,31 @@ def apply_pot_transfers(conn: sqlite3.Connection) -> int:
           AND json_extract(raw_json, '$.Type') = 'Pot transfer'
           AND COALESCE(classified_by, '') != 'manual'
         """
+    )
+    return cur.rowcount
+
+
+def apply_self_transfers(conn: sqlite3.Connection) -> int:
+    """Exclude transfers to your own accounts (e.g. paying your credit card).
+
+    Money sent from Monzo to the account owner is moving between your own
+    pockets, not leaving your net worth — so personal_pennies = 0 and the row is
+    excluded from headline totals. Counting it would also double-count once the
+    HSBC card's real purchases are ingested. Matched case-insensitively on
+    counterparty; outgoing only. Returns rows affected.
+    """
+    cur = conn.execute(
+        """
+        UPDATE transactions
+        SET exclude_from_totals = 1,
+            personal_pennies    = 0,
+            category            = 'Credit card payment',
+            classified_by       = 'rule'
+        WHERE amount_pennies < 0
+          AND upper(counterparty) = upper(?)
+          AND COALESCE(classified_by, '') != 'manual'
+        """,
+        (ACCOUNT_OWNER,),
     )
     return cur.rowcount
 
@@ -169,6 +201,7 @@ def apply_shared_bill_thirds(conn: sqlite3.Connection) -> int:
 # Registry of rules, applied in order. Each returns the number of rows it changed.
 RULES = [
     ("pot_transfers_internal", apply_pot_transfers),
+    ("self_transfers_internal", apply_self_transfers),
     ("housemate_reimbursements", apply_housemate_reimbursements),
     ("rent_personal_share", apply_rent_personal_share),
     ("shared_bill_thirds", apply_shared_bill_thirds),

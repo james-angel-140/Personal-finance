@@ -41,6 +41,39 @@ def test_pot_transfers_excluded(db):
     assert flow_ids == {"groceries"}
 
 
+def test_self_transfers_excluded(db):
+    """Transfers to the account owner (own credit card) are not spend."""
+    acct = get_or_create_account(db, "Monzo Personal", "monzo", "current")
+    upsert_transaction(db, {
+        "id": "cc_payment", "account_id": acct,
+        "posted_at": "2026-04-24T00:00:00", "amount_pennies": -273699,
+        "counterparty": "James Angel", "description": "Sent from Monzo",
+        "source": "csv_monzo", "raw_json": {"Type": "Faster payment"},
+    })
+    upsert_transaction(db, {
+        "id": "cc_payment_lc", "account_id": acct,
+        "posted_at": "2026-04-13T00:00:00", "amount_pennies": -24943,
+        "counterparty": "JAMES ANGEL", "description": "Sent from Monzo",
+        "source": "csv_monzo", "raw_json": {"Type": "Faster payment"},
+    })
+    _add(db, "groceries", -1500, "Card payment")
+    db.commit()
+
+    results = apply_rules(db)
+    assert results["self_transfers_internal"] == 2  # both, case-insensitive
+
+    rows = {r["id"]: (r["exclude_from_totals"], r["personal_pennies"], r["category"])
+            for r in db.execute(
+                "SELECT id, exclude_from_totals, personal_pennies, category FROM transactions")}
+    assert rows["cc_payment"] == (1, 0, "Credit card payment")
+    assert rows["cc_payment_lc"] == (1, 0, "Credit card payment")
+    assert rows["groceries"][0] == 0  # untouched
+
+    # The £2,736.99 self-transfer must not reach headline spend.
+    flow_ids = {r["id"] for r in db.execute("SELECT id FROM v_personal_flows")}
+    assert "cc_payment" not in flow_ids and "groceries" in flow_ids
+
+
 def test_rules_are_idempotent(db):
     _add(db, "pot_in", 2000, "Pot transfer")
     apply_rules(db)
