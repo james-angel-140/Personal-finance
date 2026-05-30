@@ -73,14 +73,23 @@ h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; }
 .unlock-card button:disabled { opacity: .6; cursor: progress; }
 
 /* ---- Layout ---- */
-#dashboard { max-width: 760px; margin: 0 auto; padding: 1rem 1rem 3rem; }
+#dashboard { max-width: 820px; margin: 0 auto; padding: 1rem 1rem 3rem; }
 .topbar {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: .6rem;
   padding: .6rem 0 1rem;
 }
+.month-select { display: flex; flex-direction: column; align-items: flex-end; gap: .15rem; }
+.month-select select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: .35rem .5rem; font-size: .9rem;
+}
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 620px) { .two-col { grid-template-columns: 1fr; } }
 
 .panel {
   background: var(--panel);
@@ -93,7 +102,7 @@ h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; }
 /* ---- Headline cards ---- */
 .cards {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: .7rem;
   margin-bottom: 1rem;
 }
@@ -107,11 +116,7 @@ h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; }
 .card .value { font-size: 1.25rem; font-weight: 700; margin-top: .25rem; font-variant-numeric: tabular-nums; }
 .value.pos { color: var(--pos); }
 .value.neg { color: var(--neg); }
-@media (max-width: 460px) {
-  .cards { grid-template-columns: 1fr; }
-  .card { display: flex; align-items: baseline; justify-content: space-between; }
-  .card .value { margin-top: 0; }
-}
+@media (max-width: 620px) { .cards { grid-template-columns: repeat(2, 1fr); } }
 
 /* ---- Charts (hand-rolled SVG/flex bars) ---- */
 .chart { width: 100%; }
@@ -124,13 +129,21 @@ h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .9rem; }
 
 /* grouped monthly bars (in/out) */
 .month-grid { display: grid; gap: .55rem; }
-.month-row { display: grid; grid-template-columns: 3.2rem 1fr 5.5rem; align-items: center; gap: .6rem; }
+.month-row {
+  display: grid; grid-template-columns: 3.2rem 1fr 5.5rem; align-items: center; gap: .6rem;
+  width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
+  color: inherit; padding: .25rem .35rem; border-radius: 8px; font: inherit;
+}
+.month-row:hover { background: var(--panel-2); }
+.month-row.active { background: var(--panel-2); outline: 1px solid var(--accent); }
 .month-row .m { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .month-bars { display: grid; gap: 3px; }
 .minibar { height: 9px; border-radius: 4px; min-width: 2px; }
 .minibar.in { background: var(--pos); }
 .minibar.out { background: var(--neg); }
 .month-row .net { font-size: .82rem; text-align: right; font-variant-numeric: tabular-nums; }
+.month-row .net.pos { color: var(--pos); }
+.month-row .net.neg { color: var(--neg); }
 
 .legend { display: flex; gap: 1rem; margin-bottom: .8rem; font-size: .78rem; color: var(--muted); }
 .legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: .35rem; vertical-align: middle; }
@@ -151,4 +164,48 @@ table.ledger .num { font-variant-numeric: tabular-nums; }
 .footer { display: flex; justify-content: space-between; align-items: center; padding-top: .5rem; }
 .link-btn { background: none; border: 0; color: var(--accent); cursor: pointer; font-size: .85rem; padding: .2rem; }
 
-.empty { color: var(--muted); font-size: .88rem; padding: .4rem 0; }
+.empty { color: var(--muted); font-size: .88rem; padding: .4rem 0; line-height: 1.45; }
+
+/* ---- Accounts ---- */
+.accounts { display: grid; gap: .5rem; }
+.acct-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+.acct-row.dim { opacity: .6; }
+.acct-name { font-size: .92rem; }
+.acct-bal { font-variant-numeric: tabular-nums; font-weight: 600; }
+.acct-bal.pos { color: var(--pos); }
+.acct-bal.neg { color: var(--neg); }
+.badge {
+  display: inline-block; font-size: .68rem; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--muted); background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 6px; padding: .05rem .4rem; margin-left: .3rem; vertical-align: middle;
+}
+.muted-pill { background: var(--panel-2); color: var(--muted); }
+
+/* ---- Subscriptions ---- */
+.sub-list { display: grid; gap: .15rem; margin-top: .6rem; }
+.sub-row {
+  display: grid; grid-template-columns: 1fr auto auto; align-items: baseline; gap: .7rem;
+  padding: .4rem 0; border-bottom: 1px solid var(--line);
+}
+.sub-row:last-child { border-bottom: 0; }
+.sub-name { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub-amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---- Activity feed ---- */
+.feed { display: grid; gap: .1rem; }
+.feed-row {
+  display: grid; grid-template-columns: 3rem 1fr auto; align-items: baseline; gap: .7rem;
+  padding: .45rem 0; border-bottom: 1px solid var(--line);
+}
+.feed-row:last-child { border-bottom: 0; }
+.feed-date { font-size: .78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.feed-name { font-size: .9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-amt { font-variant-numeric: tabular-nums; font-weight: 600; }
+.feed-amt.pos { color: var(--pos); }
+.feed-amt.neg { color: var(--neg); }
+.chip {
+  display: inline-block; font-size: .68rem; color: var(--muted);
+  background: var(--panel-2); border-radius: 999px; padding: .03rem .45rem; margin-left: .35rem;
+}
+
+.placeholder { padding: .2rem 0; }

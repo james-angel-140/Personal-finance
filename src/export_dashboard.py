@@ -52,7 +52,19 @@ ENV_PASSPHRASE = "DASHBOARD_PASSPHRASE"
 # v_housemate_ledger), so housemate pass-through money never leaks into the
 # headline numbers. See DESIGN.md "The netting model".
 
-def _monthly_flows(conn) -> list[dict]:
+RECENT_LIMIT = 30          # transactions in the activity feed (capped to limit exposure)
+TOP_LIMIT = 8              # rows per "top merchants" / "income sources" list
+SUBSCRIPTION_MIN_MONTHS = 3  # a payee must recur in >= this many months to count
+
+
+def _months(conn) -> list[str]:
+    """Distinct YYYY-MM present in personal flows, oldest first."""
+    return [r["m"] for r in conn.execute(
+        "SELECT DISTINCT substr(posted_at, 1, 7) AS m FROM v_personal_flows ORDER BY m"
+    ).fetchall()]
+
+
+def _monthly_series(conn) -> list[dict]:
     """Real income / spend / net per calendar month (pass-through excluded)."""
     rows = conn.execute(
         """
@@ -78,18 +90,13 @@ def _monthly_flows(conn) -> list[dict]:
 
 
 def _category_spend(conn, month: str) -> list[dict]:
-    """Spend by category for one month. NULL category -> 'Uncategorised'.
-
-    Spend only (negative personal flows), returned as positive pennies and
-    sorted largest first so the dashboard can render bars directly.
-    """
+    """Spend by category for one month (NULL -> 'Uncategorised'), positive pennies."""
     rows = conn.execute(
         """
         SELECT COALESCE(category, 'Uncategorised') AS category,
                -SUM(personal_pennies)              AS spend_pennies
         FROM v_personal_flows
-        WHERE personal_pennies < 0
-          AND substr(posted_at, 1, 7) = ?
+        WHERE personal_pennies < 0 AND substr(posted_at, 1, 7) = ?
         GROUP BY COALESCE(category, 'Uncategorised')
         ORDER BY spend_pennies DESC
         """,
@@ -98,14 +105,147 @@ def _category_spend(conn, month: str) -> list[dict]:
     return [{"category": r["category"], "spend_pennies": r["spend_pennies"]} for r in rows]
 
 
+def _top_by_counterparty(conn, month: str, *, outgoing: bool) -> list[dict]:
+    """Top merchants (outgoing) or income sources (incoming) for a month."""
+    sign = "< 0" if outgoing else "> 0"
+    rows = conn.execute(
+        f"""
+        SELECT COALESCE(NULLIF(TRIM(counterparty), ''), 'Unknown') AS name,
+               SUM(ABS(personal_pennies)) AS total_pennies,
+               COUNT(*)                   AS n
+        FROM v_personal_flows
+        WHERE personal_pennies {sign} AND substr(posted_at, 1, 7) = ?
+        GROUP BY name
+        ORDER BY total_pennies DESC
+        LIMIT ?
+        """,
+        (month, TOP_LIMIT),
+    ).fetchall()
+    return [{"name": r["name"], "total_pennies": r["total_pennies"], "count": r["n"]} for r in rows]
+
+
+def _month_summary(conn, month: str) -> dict:
+    """Everything the month-specific panels need for one month."""
+    agg = conn.execute(
+        """
+        SELECT SUM(CASE WHEN personal_pennies > 0 THEN personal_pennies ELSE 0 END) AS income,
+               SUM(CASE WHEN personal_pennies < 0 THEN personal_pennies ELSE 0 END) AS spend,
+               COUNT(*) AS n
+        FROM v_personal_flows
+        WHERE substr(posted_at, 1, 7) = ?
+        """,
+        (month,),
+    ).fetchone()
+    income = agg["income"] or 0
+    spend = agg["spend"] or 0            # negative
+    biggest = conn.execute(
+        """
+        SELECT COALESCE(NULLIF(TRIM(counterparty), ''), 'Unknown') AS name, personal_pennies AS p
+        FROM v_personal_flows
+        WHERE personal_pennies < 0 AND substr(posted_at, 1, 7) = ?
+        ORDER BY personal_pennies ASC LIMIT 1
+        """,
+        (month,),
+    ).fetchone()
+    # Savings rate = what you kept of what you earned (None if no income that month).
+    savings_rate = round((income + spend) / income, 4) if income > 0 else None
+    return {
+        "income_pennies": income,
+        "spend_pennies": spend,
+        "net_pennies": income + spend,
+        "savings_rate": savings_rate,
+        "txn_count": agg["n"] or 0,
+        "biggest_expense": (
+            {"name": biggest["name"], "spend_pennies": -biggest["p"]} if biggest else None
+        ),
+        "categories": _category_spend(conn, month),
+        "top_merchants": _top_by_counterparty(conn, month, outgoing=True),
+        "income_sources": _top_by_counterparty(conn, month, outgoing=False),
+    }
+
+
+def _accounts(conn) -> list[dict]:
+    """Accounts with a balance ESTIMATED from ingested transactions.
+
+    There's no balance feed yet, so balance = sum of a connected account's
+    movements (accurate if the history starts from the account's real opening
+    balance, as the Monzo export does). Accounts with no transactions are marked
+    not-connected so the UI can show a placeholder rather than a misleading £0.
+    """
+    rows = conn.execute(
+        """
+        SELECT a.name, a.provider, a.type,
+               (SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.id)              AS n,
+               (SELECT COALESCE(SUM(amount_pennies), 0) FROM transactions t WHERE t.account_id = a.id) AS bal
+        FROM accounts a ORDER BY a.id
+        """
+    ).fetchall()
+    out = []
+    for r in rows:
+        connected = r["n"] > 0
+        out.append({
+            "name": r["name"], "provider": r["provider"], "type": r["type"],
+            "connected": connected,
+            "balance_pennies": r["bal"] if connected else None,
+        })
+    return out
+
+
+def _recent(conn) -> list[dict]:
+    """Most recent personal-flow transactions (capped) for the activity feed."""
+    rows = conn.execute(
+        """
+        SELECT v.posted_at, v.personal_pennies, v.category,
+               COALESCE(NULLIF(TRIM(v.counterparty), ''), v.description) AS name,
+               a.name AS account
+        FROM v_personal_flows v JOIN accounts a ON a.id = v.account_id
+        ORDER BY v.posted_at DESC LIMIT ?
+        """,
+        (RECENT_LIMIT,),
+    ).fetchall()
+    return [{
+        "date": r["posted_at"][:10],
+        "amount_pennies": r["personal_pennies"],
+        "category": r["category"] or "Uncategorised",
+        "name": (r["name"] or "Unknown")[:48],
+        "account": r["account"],
+    } for r in rows]
+
+
+def _subscriptions(conn) -> list[dict]:
+    """Best-effort recurring payments: a payee that recurs across several months.
+
+    Heuristic only (no contract data): an outgoing payee seen in at least
+    SUBSCRIPTION_MIN_MONTHS distinct months is treated as recurring, with its
+    typical (median-ish) monthly amount. Good enough to surface rent, gym,
+    energy, regular food orders, etc.
+    """
+    rows = conn.execute(
+        """
+        SELECT COALESCE(NULLIF(TRIM(counterparty), ''), 'Unknown') AS name,
+               COUNT(DISTINCT substr(posted_at, 1, 7)) AS months,
+               CAST(AVG(ABS(personal_pennies)) AS INTEGER) AS typical_pennies,
+               MAX(substr(posted_at, 1, 10)) AS last_seen
+        FROM v_personal_flows
+        WHERE personal_pennies < 0
+        GROUP BY name
+        HAVING months >= ?
+        ORDER BY typical_pennies DESC
+        """,
+        (SUBSCRIPTION_MIN_MONTHS,),
+    ).fetchall()
+    return [{
+        "name": r["name"], "months_seen": r["months"],
+        "typical_pennies": r["typical_pennies"], "last_seen": r["last_seen"],
+    } for r in rows]
+
+
 def _ledger(conn) -> list[dict]:
     """Who owes what THIS MONTH (the view is already scoped to the current month)."""
     rows = conn.execute(
         """
-        SELECT housemate, bill_group,
-               expected_pennies, received_pennies, balance_pennies
-        FROM v_housemate_ledger
-        ORDER BY housemate, bill_group
+        SELECT housemate, bill_group, expected_pennies, received_pennies, balance_pennies
+        FROM v_housemate_ledger ORDER BY housemate, bill_group
         """
     ).fetchall()
     return [dict(r) for r in rows]
@@ -114,35 +254,33 @@ def _ledger(conn) -> list[dict]:
 def build_payload(conn) -> dict:
     """Assemble the full dashboard payload from the database."""
     current_month = conn.execute("SELECT strftime('%Y-%m', 'now')").fetchone()[0]
-    monthly = _monthly_flows(conn)
+    months = _months(conn)
 
-    # Headline = the latest month that actually has data (usually = current month,
-    # but fall back gracefully early in a fresh month / on stale data).
-    headline_month = current_month
-    by_month = {m["month"]: m for m in monthly}
-    if headline_month not in by_month and monthly:
-        headline_month = monthly[-1]["month"]
-    headline = by_month.get(headline_month, {
-        "month": headline_month,
-        "income_pennies": 0, "spend_pennies": 0, "net_pennies": 0,
-    })
+    # Default selected month = current month if it has data, else the latest.
+    selected_month = current_month if current_month in months else (months[-1] if months else current_month)
+    by_month = {m: _month_summary(conn, m) for m in months}
 
-    accounts = [
-        dict(r) for r in conn.execute(
-            "SELECT name, provider, type FROM accounts ORDER BY id"
-        ).fetchall()
-    ]
+    accounts = _accounts(conn)
+    known = sum(a["balance_pennies"] for a in accounts if a["connected"])
+    has_unconnected = any(not a["connected"] for a in accounts)
 
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "currency": "GBP",
         "current_month": current_month,
-        "headline": headline,
-        "monthly": monthly,
-        "categories": _category_spend(conn, headline_month),
-        "ledger": _ledger(conn),
+        "selected_month": selected_month,
+        "months": months,
+        "by_month": by_month,
+        "monthly_series": _monthly_series(conn),
         "accounts": accounts,
+        "net_worth": {"known_pennies": known, "has_unconnected": has_unconnected},
+        "ledger": _ledger(conn),
+        "recent": _recent(conn),
+        "subscriptions": _subscriptions(conn),
+        # No budget source yet — ship an explicit empty list so the UI shows a
+        # clear "set budgets" state rather than inventing numbers.
+        "budgets": [],
     }
 
 
@@ -201,12 +339,15 @@ def main() -> int:
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(envelope, indent=2) + "\n")
 
-    months = len(payload["monthly"])
+    sel = payload["selected_month"]
+    sm = payload["by_month"].get(sel, {"net_pennies": 0})
     print(f"Wrote {OUTPUT_PATH.relative_to(PROJECT_ROOT)}")
     print(f"  generated_at : {payload['generated_at']}")
-    print(f"  headline     : {payload['headline']['month']} "
-          f"(net £{payload['headline']['net_pennies'] / 100:,.2f})")
-    print(f"  months       : {months}   ledger rows: {len(payload['ledger'])}")
+    print(f"  selected     : {sel} (net £{sm['net_pennies'] / 100:,.2f})")
+    print(f"  months       : {len(payload['months'])}   "
+          f"accounts: {len(payload['accounts'])}   "
+          f"subscriptions: {len(payload['subscriptions'])}   "
+          f"recent: {len(payload['recent'])}   ledger: {len(payload['ledger'])}")
     print("  ciphertext   : encrypted with AES-256-GCM (plaintext never written to disk)")
     print("\nNext: commit & push dashboard/data.enc.json; the Pages workflow deploys it.")
     return 0

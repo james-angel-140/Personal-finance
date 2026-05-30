@@ -27,29 +27,87 @@
   <!-- Dashboard (hidden until unlocked) -->
   <div id="dashboard" hidden>
     <header class="topbar">
-      <h1>Finances</h1>
-      <span id="freshness" class="muted tiny"></span>
+      <div>
+        <h1>Finances</h1>
+        <span id="freshness" class="muted tiny"></span>
+      </div>
+      <label class="month-select">
+        <span class="muted tiny">Month</span>
+        <select id="month-picker" aria-label="Select month"></select>
+      </label>
     </header>
 
-    <section class="cards" id="headline-cards" aria-label="This month"></section>
+    <!-- KPI cards -->
+    <section class="cards" id="kpi-cards" aria-label="Key figures"></section>
 
+    <!-- Accounts / balances -->
     <section class="panel">
-      <h2>Monthly cashflow <span class="muted tiny">— real money, housemate pass-through removed</span></h2>
+      <h2>Accounts <span class="muted tiny">— estimated from transactions</span></h2>
+      <div id="accounts" class="accounts"></div>
+    </section>
+
+    <!-- Cashflow trend -->
+    <section class="panel">
+      <h2>Monthly cashflow <span class="muted tiny">— real money, pass-through removed</span></h2>
       <div id="cashflow-chart" class="chart"></div>
     </section>
 
+    <!-- Spend by category -->
     <section class="panel">
-      <h2 id="category-title">Spend by category</h2>
+      <div class="panel-head">
+        <h2 id="category-title">Spend by category</h2>
+        <span id="biggest-expense" class="muted tiny"></span>
+      </div>
       <div id="category-chart" class="chart"></div>
     </section>
 
+    <!-- Budgets (no data source yet) -->
+    <section class="panel">
+      <h2>Budgets</h2>
+      <div id="budgets"></div>
+    </section>
+
+    <!-- Merchants + income, side by side on wide screens -->
+    <div class="two-col">
+      <section class="panel">
+        <h2>Top merchants <span class="muted tiny">— this month</span></h2>
+        <div id="merchants-chart" class="chart"></div>
+      </section>
+      <section class="panel">
+        <h2>Income sources <span class="muted tiny">— this month</span></h2>
+        <div id="income-chart" class="chart"></div>
+      </section>
+    </div>
+
+    <!-- Recurring / subscriptions -->
+    <section class="panel">
+      <h2>Recurring &amp; subscriptions <span class="muted tiny">— detected from repeat payments</span></h2>
+      <div id="subscriptions"></div>
+    </section>
+
+    <!-- Housemate ledger -->
     <section class="panel">
       <h2>Housemate ledger <span class="muted tiny">— this month</span></h2>
       <div id="ledger" class="ledger-wrap"></div>
     </section>
 
+    <!-- Recent activity -->
+    <section class="panel">
+      <h2>Recent activity</h2>
+      <div id="recent" class="feed"></div>
+    </section>
+
+    <!-- Investments (placeholder until Fidelity is ingested) -->
+    <section class="panel">
+      <h2>Investments <span class="muted tiny">— ISA</span></h2>
+      <div id="investments" class="placeholder">
+        <p class="empty">📈 Not connected yet. Once the Fidelity ISA is imported,
+        your portfolio value, contributions and growth will show here.</p>
+      </div>
+    </section>
+
     <footer class="footer">
-      <div id="accounts" class="muted tiny"></div>
+      <div id="sources" class="muted tiny"></div>
       <button id="lock-btn" type="button" class="link-btn">Lock</button>
     </footer>
   </div>
