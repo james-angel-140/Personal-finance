@@ -40,6 +40,11 @@ def house(db: sqlite3.Connection) -> sqlite3.Connection:
         [(1, 1, ALEX_EXPECTED), (1, 2, SAM_EXPECTED)],
     )
 
+    # Dates must land in the CURRENT calendar month, because v_housemate_ledger
+    # scopes "received" to it. Derive the month from the same clock the view uses
+    # (SQLite 'now') so this fixture is stable whatever the wall-clock date is.
+    ym = db.execute("SELECT strftime('%Y-%m', 'now')").fetchone()[0]
+
     # The three transactions from the worked example.
     db.executemany(
         "INSERT INTO transactions "
@@ -48,13 +53,13 @@ def house(db: sqlite3.Connection) -> sqlite3.Connection:
         " VALUES (?, 1, ?, ?, ?, 'rule', ?, ?, ?, ?, 'monzo_api')",
         [
             # Rent goes out: full -£1000, but only -£350 is genuinely mine.
-            ("rent_out", "2026-05-01T08:00:00Z", RENT_OUT, "Rent",
+            ("rent_out", f"{ym}-01T08:00:00Z", RENT_OUT, "Rent",
              MY_RENT_SHARE, 0, 1, None),
             # Alex pays in: pure pass-through, 0 personal, excluded from totals.
-            ("alex_in", "2026-05-02T09:00:00Z", ALEX_PAID, "Reimbursement",
+            ("alex_in", f"{ym}-02T09:00:00Z", ALEX_PAID, "Reimbursement",
              0, 1, 1, 1),
             # Sam pays in (underpaid): pure pass-through, 0 personal, excluded.
-            ("sam_in", "2026-05-03T09:00:00Z", SAM_PAID, "Reimbursement",
+            ("sam_in", f"{ym}-03T09:00:00Z", SAM_PAID, "Reimbursement",
              0, 1, 1, 2),
         ],
     )

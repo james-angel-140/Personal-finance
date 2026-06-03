@@ -74,6 +74,30 @@ def test_self_transfers_excluded(db):
     assert "cc_payment" not in flow_ids and "groceries" in flow_ids
 
 
+def test_isa_contributions_excluded(db):
+    """Money into the Fidelity ISA is saving, not spend."""
+    acct = get_or_create_account(db, "Monzo Personal", "monzo", "current")
+    upsert_transaction(db, {
+        "id": "isa", "account_id": acct,
+        "posted_at": "2026-02-02T00:00:00", "amount_pennies": -100000,
+        "counterparty": "Fidelity", "description": "AS10162900",
+        "source": "csv_monzo", "raw_json": {"Type": "Faster payment"},
+    })
+    _add(db, "groceries", -1500, "Card payment")
+    db.commit()
+
+    results = apply_rules(db)
+    assert results["isa_contributions"] == 1
+
+    row = db.execute(
+        "SELECT exclude_from_totals, personal_pennies, category FROM transactions WHERE id='isa'"
+    ).fetchone()
+    assert (row["exclude_from_totals"], row["personal_pennies"], row["category"]) == (1, 0, "ISA contribution")
+
+    flow_ids = {r["id"] for r in db.execute("SELECT id FROM v_personal_flows")}
+    assert "isa" not in flow_ids and "groceries" in flow_ids
+
+
 def test_rules_are_idempotent(db):
     _add(db, "pot_in", 2000, "Pot transfer")
     apply_rules(db)

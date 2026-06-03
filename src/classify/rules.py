@@ -24,6 +24,11 @@ LANDLORD = "Joe Crosby"
 # ingested from HSBC.
 ACCOUNT_OWNER = "James Angel"
 
+# Money moved into your own Fidelity ISA is investing/saving, not spending, so
+# it's excluded from headline totals too. (Once the ISA is ingested as its own
+# account, the contributions land there as investment value.)
+ISA_PAYEE = "Fidelity"
+
 # Utilities we split evenly across the three people in the house. Each line is
 # a real outflow from James's account, but only a third of it is genuinely his.
 SHARED_BILL_PAYEES = ("Octopus Energy", "Thames Water", "Virgin Media")
@@ -83,6 +88,30 @@ def apply_self_transfers(conn: sqlite3.Connection) -> int:
           AND COALESCE(classified_by, '') != 'manual'
         """,
         (ACCOUNT_OWNER,),
+    )
+    return cur.rowcount
+
+
+def apply_isa_contributions(conn: sqlite3.Connection) -> int:
+    """Exclude ISA contributions (money moved into your Fidelity ISA).
+
+    Investing is saving, not spending: counting it inflated spend (e.g. it made
+    early months look £1,000 worse than they were). So personal_pennies = 0 and
+    the row is excluded from headline totals. Outgoing only; matched
+    case-insensitively on counterparty. Returns rows affected.
+    """
+    cur = conn.execute(
+        """
+        UPDATE transactions
+        SET exclude_from_totals = 1,
+            personal_pennies    = 0,
+            category            = 'ISA contribution',
+            classified_by       = 'rule'
+        WHERE amount_pennies < 0
+          AND upper(counterparty) = upper(?)
+          AND COALESCE(classified_by, '') != 'manual'
+        """,
+        (ISA_PAYEE,),
     )
     return cur.rowcount
 
@@ -202,6 +231,7 @@ def apply_shared_bill_thirds(conn: sqlite3.Connection) -> int:
 RULES = [
     ("pot_transfers_internal", apply_pot_transfers),
     ("self_transfers_internal", apply_self_transfers),
+    ("isa_contributions", apply_isa_contributions),
     ("housemate_reimbursements", apply_housemate_reimbursements),
     ("rent_personal_share", apply_rent_personal_share),
     ("shared_bill_thirds", apply_shared_bill_thirds),

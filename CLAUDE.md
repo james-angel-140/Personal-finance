@@ -30,8 +30,11 @@ Housemate money is pass-through. Two fields on `transactions` handle it:
   headline figures.
 
 All headline figures read from the `v_personal_flows` view. The
-`v_housemate_ledger` view shows who still owes the user money. This is built and
-tested — don't redesign it without a reason.
+`v_housemate_ledger` view shows who still owes the user money, scoped to the
+**latest month present in the data** (ingestion is periodic CSV snapshots, so
+pinning to wall-clock 'now' would wrongly show everyone owing in full the moment
+a new month ticks over). This is built and tested — don't redesign it without a
+reason.
 
 ## Layout (actual)
 
@@ -78,9 +81,7 @@ and the "chat with your finances" layer.
 - People: housemates **Joseph Buckett** (£1,158/mo, all-inclusive → all to Rent)
   and **Michael Degroot** (£960 Rent + ~£83 Bills). Landlord: **Joe Crosby**.
   Account owner: **James Angel** (transfers to self = credit-card payments).
-- Known issue: **Fidelity ISA contributions (£1,000) still count as spend.**
-  They're saving, not spending — they should be excluded like self-transfers
-  (a `classify/rules.py` rule, mirroring `apply_self_transfers`). Not yet done.
+  ISA contributions go to counterparty **Fidelity**.
 
 ## Classification (`classify/rules.py`)
 
@@ -89,6 +90,8 @@ Deterministic rules run in order; none override a `manual` classification.
 - `pot_transfers_internal` — Monzo pot moves → excluded.
 - `self_transfers_internal` — transfers to the account owner (credit-card
   payments) → excluded (prevents double-count once HSBC is ingested).
+- `isa_contributions` — money into the Fidelity ISA → excluded (it's saving,
+  not spending).
 - `housemate_reimbursements` — money IN from a housemate → pass-through
   (`personal=0`, excluded), tagged with housemate + bill group for the ledger.
 - `rent_personal_share` — the landlord rent-out keeps only James's share

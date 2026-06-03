@@ -104,11 +104,16 @@ SELECT
 FROM transactions t
 WHERE t.exclude_from_totals = 0;
 
--- Housemate ledger: expected vs actually received THIS MONTH, per housemate
--- per bill group. A positive 'balance_pennies' means the housemate still owes
--- you that amount for the current month. Received is scoped to the current
--- calendar month so it is comparable to the monthly 'expected' (otherwise
--- all-time receipts dwarf a single month's expectation).
+-- Housemate ledger: expected vs actually received for the LATEST month present
+-- in the data, per housemate per bill group. A positive 'balance_pennies' means
+-- the housemate still owes you that amount for that month.
+--
+-- Scoped to a single month so it is comparable to the monthly 'expected'
+-- (otherwise all-time receipts dwarf one month's expectation). We use the latest
+-- month that has any transactions rather than the wall-clock 'now': ingestion is
+-- periodic CSV snapshots, so the data always lags the calendar slightly, and
+-- pinning to 'now' would wrongly show everyone owing in full the moment a new
+-- month begins. When data is fresh the two are identical.
 CREATE VIEW v_housemate_ledger AS
 SELECT
     h.id   AS housemate_id,
@@ -125,5 +130,5 @@ LEFT JOIN transactions t
     ON t.housemate_id  = c.housemate_id
     AND t.bill_group_id = c.bill_group_id
     AND t.amount_pennies > 0          -- reimbursements are money coming IN
-    AND substr(t.posted_at, 1, 7) = strftime('%Y-%m', 'now')
+    AND substr(t.posted_at, 1, 7) = (SELECT substr(MAX(posted_at), 1, 7) FROM transactions)
 GROUP BY h.id, bg.id;
