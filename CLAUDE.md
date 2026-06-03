@@ -46,6 +46,7 @@ src/
   ingest/
     csv_common.py      # shared CSV import helpers (account/txn upsert)
     csv_monzo.py       # Monzo CSV importer (the only ingest path so far)
+    snapshot.py        # record a point-in-time account valuation (e.g. ISA balance)
   classify/
     rules.py           # deterministic rules (built; see "Classification")
   export_dashboard.py  # reads the DB -> JSON -> AES-256-GCM -> dashboard/data.enc.json
@@ -53,7 +54,7 @@ dashboard/             # encrypted static site (index.html, app.js, styles.css)
 .github/workflows/
   pages.yml            # deploys dashboard/ to GitHub Pages
 data/                  # local SQLite db lives here (gitignored)
-tests/                 # pytest suite (44 tests)
+tests/                 # pytest suite (52 tests)
 ```
 
 Not built yet: live Monzo OAuth sync, HSBC/Fidelity CSV importers, the Claude
@@ -67,15 +68,20 @@ and the "chat with your finances" layer.
 - [x] Monzo CSV ingestion
 - [x] Deterministic classification rules (`classify/rules.py`)
 - [x] Dashboard: encrypted static site + GitHub Pages deploy
+- [x] Account valuation snapshots (`ingest/snapshot.py`) — gives the ISA a balance
 - [ ] Live Monzo OAuth sync · HSBC + Fidelity CSV importers
 - [ ] Claude classification fallback (most txns are still uncategorised)
 - [ ] "Chat with your finances" (read-only SQL tool for Claude)
 
 ### Data reality (as of this writing)
 
-- Only **Monzo** is ingested (~963 txns, Dec 2025–May 2026). The HSBC Credit and
-  Fidelity ISA accounts exist but have **0 transactions** — the dashboard shows
-  them as "not connected".
+- Only **Monzo** is ingested (~963 txns, Dec 2025–May 2026). The HSBC Credit
+  account exists but has **0 transactions** — the dashboard shows it as "not
+  connected". The **Fidelity ISA** has no transaction stream; its balance comes
+  from a manual valuation **snapshot** instead (the first figure is £37,401.52
+  as of 2026-06-03). Once snapshotted it shows as connected and counts toward
+  net worth. Run `python -m src.ingest.snapshot --value <total>` locally on the
+  real DB, then re-export, to record/refresh it.
 - The Claude pass hasn't run, so the **majority of txns are uncategorised**
   (`category` is NULL → shown as "Uncategorised").
 - People: housemates **Joseph Buckett** (£1,158/mo, all-inclusive → all to Rent)

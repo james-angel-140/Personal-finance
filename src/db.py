@@ -79,6 +79,31 @@ def init_db(conn: sqlite3.Connection | None = None,
     return conn
 
 
+# DDL for the account_snapshots table, mirroring schema.sql. Kept here too so
+# we can bring an EXISTING database up to date: init_db only loads schema.sql on
+# a fresh DB (it bails once 'transactions' exists), so a table added later would
+# never reach databases created before it. This is our lightweight migration.
+_ACCOUNT_SNAPSHOTS_DDL = """
+CREATE TABLE IF NOT EXISTS account_snapshots (
+    id            INTEGER PRIMARY KEY,
+    account_id    INTEGER NOT NULL REFERENCES accounts(id),
+    as_of         TEXT NOT NULL,
+    value_pennies INTEGER NOT NULL,
+    source        TEXT,
+    notes         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (account_id, as_of)
+);
+CREATE INDEX IF NOT EXISTS idx_snapshot_account ON account_snapshots(account_id, as_of);
+"""
+
+
+def ensure_account_snapshots(conn: sqlite3.Connection) -> None:
+    """Create the account_snapshots table if an older DB predates it. Idempotent."""
+    conn.executescript(_ACCOUNT_SNAPSHOTS_DDL)
+    conn.commit()
+
+
 def query(conn: sqlite3.Connection, sql: str,
           params: Sequence[Any] | None = None) -> list[sqlite3.Row]:
     """Run a read query and return all rows."""

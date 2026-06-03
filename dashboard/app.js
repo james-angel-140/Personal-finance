@@ -92,7 +92,7 @@ function renderKpis(month) {
       label: "Net worth",
       value: gbp0(nw.known_pennies),
       cls: nw.known_pennies >= 0 ? "pos" : "neg",
-      note: nw.has_unconnected ? "Monzo only · others pending" : "",
+      note: nw.has_unconnected ? "excl. accounts still pending" : "",
     },
     {
       label: `Net · ${monthLabel(month)}`,
@@ -167,8 +167,11 @@ function renderMonth(month) {
 function renderAccounts() {
   $("#accounts").innerHTML = DATA.accounts.map((a) => {
     const typeBadge = `<span class="badge">${escapeHtml(a.type)}</span>`;
+    // Valuation snapshots (e.g. the ISA) carry an "as of" date; show it so the
+    // figure isn't mistaken for a live balance.
+    const asOf = a.as_of ? ` <span class="muted tiny">as of ${escapeHtml(a.as_of)}</span>` : "";
     const right = a.connected
-      ? `<span class="acct-bal ${a.balance_pennies >= 0 ? "pos" : "neg"}">${gbpExact(a.balance_pennies)}</span>`
+      ? `<span class="acct-bal ${a.balance_pennies >= 0 ? "pos" : "neg"}">${gbpExact(a.balance_pennies)}</span>${asOf}`
       : `<span class="pill muted-pill">not connected</span>`;
     return `
       <div class="acct-row ${a.connected ? "" : "dim"}">

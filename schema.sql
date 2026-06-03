@@ -91,6 +91,29 @@ CREATE INDEX idx_txn_posted  ON transactions(posted_at);
 CREATE INDEX idx_txn_group   ON transactions(bill_group_id);
 
 -- ---------------------------------------------------------------------------
+-- Account snapshots: a point-in-time total valuation for an account.
+--
+-- Investment accounts (the Fidelity ISA) have no transaction stream we can sum
+-- into a balance — they hold funds whose market value drifts daily. So instead
+-- of faking transactions we record periodic *valuations*: one row per account
+-- per day. These live OUTSIDE `transactions` on purpose, so a valuation can
+-- never leak into v_personal_flows and be mistaken for income/spend. The
+-- dashboard reads the latest snapshot as the account's balance.
+-- ---------------------------------------------------------------------------
+CREATE TABLE account_snapshots (
+    id            INTEGER PRIMARY KEY,
+    account_id    INTEGER NOT NULL REFERENCES accounts(id),
+    as_of         TEXT NOT NULL,            -- ISO date 'YYYY-MM-DD' of the valuation
+    value_pennies INTEGER NOT NULL,         -- total account market value at as_of
+    source        TEXT,                     -- 'manual' | 'csv_fidelity' | ...
+    notes         TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (account_id, as_of)              -- one snapshot per account per day; re-snapshot updates
+);
+
+CREATE INDEX idx_snapshot_account ON account_snapshots(account_id, as_of);
+
+-- ---------------------------------------------------------------------------
 -- Views: the "true picture" of your money
 -- ---------------------------------------------------------------------------
 

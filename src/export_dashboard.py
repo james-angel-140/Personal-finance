@@ -34,7 +34,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from .db import PROJECT_ROOT, get_connection
+from .db import PROJECT_ROOT, ensure_account_snapshots, get_connection
 
 # --- crypto parameters (must match dashboard/app.js) -----------------------
 PBKDF2_ITERATIONS = 200_000
@@ -165,28 +165,47 @@ def _month_summary(conn, month: str) -> dict:
 
 
 def _accounts(conn) -> list[dict]:
-    """Accounts with a balance ESTIMATED from ingested transactions.
+    """Accounts with their best-known balance.
 
-    There's no balance feed yet, so balance = sum of a connected account's
-    movements (accurate if the history starts from the account's real opening
-    balance, as the Monzo export does). Accounts with no transactions are marked
-    not-connected so the UI can show a placeholder rather than a misleading £0.
+    Current/credit accounts: balance is ESTIMATED as the sum of ingested
+    transactions (accurate when the history starts from the account's real
+    opening balance, as the Monzo export does). Investment accounts have no
+    transaction stream, so we use the latest *valuation snapshot*
+    (account_snapshots) instead — that's how the ISA gets a balance. A snapshot
+    is an explicit, authoritative valuation, so where one exists it wins over the
+    transaction-sum estimate. Accounts with neither are marked not-connected so
+    the UI shows a placeholder rather than a misleading £0.
     """
+    ensure_account_snapshots(conn)  # tolerate DBs created before snapshots existed
     rows = conn.execute(
         """
         SELECT a.name, a.provider, a.type,
                (SELECT COUNT(*) FROM transactions t WHERE t.account_id = a.id)              AS n,
-               (SELECT COALESCE(SUM(amount_pennies), 0) FROM transactions t WHERE t.account_id = a.id) AS bal
+               (SELECT COALESCE(SUM(amount_pennies), 0) FROM transactions t WHERE t.account_id = a.id) AS bal,
+               (SELECT s.value_pennies FROM account_snapshots s
+                 WHERE s.account_id = a.id ORDER BY s.as_of DESC, s.id DESC LIMIT 1) AS snap_value,
+               (SELECT s.as_of FROM account_snapshots s
+                 WHERE s.account_id = a.id ORDER BY s.as_of DESC, s.id DESC LIMIT 1) AS snap_as_of
         FROM accounts a ORDER BY a.id
         """
     ).fetchall()
     out = []
     for r in rows:
-        connected = r["n"] > 0
+        has_snapshot = r["snap_value"] is not None
+        connected = has_snapshot or r["n"] > 0
+        if has_snapshot:
+            balance = r["snap_value"]
+        elif r["n"] > 0:
+            balance = r["bal"]
+        else:
+            balance = None
         out.append({
             "name": r["name"], "provider": r["provider"], "type": r["type"],
             "connected": connected,
-            "balance_pennies": r["bal"] if connected else None,
+            "balance_pennies": balance,
+            # Only valuation snapshots carry an "as of" date; None for txn-summed
+            # balances (which are current by construction).
+            "as_of": r["snap_as_of"] if has_snapshot else None,
         })
     return out
 
