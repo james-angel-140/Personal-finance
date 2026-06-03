@@ -16,8 +16,9 @@ through the user's account, and must NOT distort their real income/spend.
 - **Python** for ingestion, classification, and the AI glue (Anthropic SDK).
 - **SQLite** as the store (single file, single user, no infra). Money is stored
   as signed INTEGER pennies everywhere — never floats.
-- **Web dashboard** (decide framework when we get there) for visualisation.
-- **Claude API** for the intelligence layer.
+- **Dashboard**: an *encrypted static site* (`dashboard/`) deployed to GitHub
+  Pages. No backend — see "Dashboard" below for why and how.
+- **Claude API** for the intelligence layer (not built yet).
 
 ## The netting model (most important concept — see DESIGN.md)
 
@@ -32,36 +33,94 @@ All headline figures read from the `v_personal_flows` view. The
 `v_housemate_ledger` view shows who still owes the user money. This is built and
 tested — don't redesign it without a reason.
 
-## Suggested layout
+## Layout (actual)
 
 ```
 src/
-  db.py              # connection, schema init, helpers
+  db.py                # connection, schema init, query helpers
+  seed.py              # seeds accounts, housemates, bill_groups, contributions
+  setup_assistant.py   # interactive first-run setup helper
   ingest/
-    monzo.py         # OAuth + transaction sync
-    csv_hsbc.py
-    csv_fidelity.py
+    csv_common.py      # shared CSV import helpers (account/txn upsert)
+    csv_monzo.py       # Monzo CSV importer (the only ingest path so far)
   classify/
-    rules.py         # deterministic rules (run first)
-    ai.py            # Claude fallback for uncategorised txns
-  query.py           # read-only SQL tool exposed to Claude for NL questions
-dashboard/           # web UI (later)
-data/                # local SQLite db lives here (gitignored)
+    rules.py           # deterministic rules (built; see "Classification")
+  export_dashboard.py  # reads the DB -> JSON -> AES-256-GCM -> dashboard/data.enc.json
+dashboard/             # encrypted static site (index.html, app.js, styles.css)
+.github/workflows/
+  pages.yml            # deploys dashboard/ to GitHub Pages
+data/                  # local SQLite db lives here (gitignored)
+tests/                 # pytest suite (44 tests)
 ```
 
-## Recommended build order
+Not built yet: live Monzo OAuth sync, HSBC/Fidelity CSV importers, the Claude
+classification fallback (`classify/ai.py`), the read-only SQL tool (`query.py`),
+and the "chat with your finances" layer.
 
-1. `db.py` + load `schema.sql` (foundation).
-1. Monzo ingestion (the live feed; the part with the most unknowns — OAuth).
-1. CSV importers for HSBC + Fidelity.
-1. Classification: rules first, then the Claude fallback.
-1. Dashboard.
-1. The "chat with your finances" SQL tool layer.
+## Current status
+
+- [x] DB layer (`db.py`) + schema + netting views
+- [x] Seed + interactive setup assistant
+- [x] Monzo CSV ingestion
+- [x] Deterministic classification rules (`classify/rules.py`)
+- [x] Dashboard: encrypted static site + GitHub Pages deploy
+- [ ] Live Monzo OAuth sync · HSBC + Fidelity CSV importers
+- [ ] Claude classification fallback (most txns are still uncategorised)
+- [ ] "Chat with your finances" (read-only SQL tool for Claude)
+
+### Data reality (as of this writing)
+
+- Only **Monzo** is ingested (~963 txns, Dec 2025–May 2026). The HSBC Credit and
+  Fidelity ISA accounts exist but have **0 transactions** — the dashboard shows
+  them as "not connected".
+- The Claude pass hasn't run, so the **majority of txns are uncategorised**
+  (`category` is NULL → shown as "Uncategorised").
+- People: housemates **Joseph Buckett** (£1,158/mo, all-inclusive → all to Rent)
+  and **Michael Degroot** (£960 Rent + ~£83 Bills). Landlord: **Joe Crosby**.
+  Account owner: **James Angel** (transfers to self = credit-card payments).
+- Known issue: **Fidelity ISA contributions (£1,000) still count as spend.**
+  They're saving, not spending — they should be excluded like self-transfers
+  (a `classify/rules.py` rule, mirroring `apply_self_transfers`). Not yet done.
+
+## Classification (`classify/rules.py`)
+
+Deterministic rules run in order; none override a `manual` classification.
+
+- `pot_transfers_internal` — Monzo pot moves → excluded.
+- `self_transfers_internal` — transfers to the account owner (credit-card
+  payments) → excluded (prevents double-count once HSBC is ingested).
+- `housemate_reimbursements` — money IN from a housemate → pass-through
+  (`personal=0`, excluded), tagged with housemate + bill group for the ledger.
+- `rent_personal_share` — the landlord rent-out keeps only James's share
+  (`amount + housemates' expected rent`, read from `contributions`).
+- `shared_bill_thirds` — shared utility bills keep only James's third.
+
+## Dashboard
+
+GitHub Pages is **public and static-only**, and this is real financial data, so:
+
+- `src/export_dashboard.py` reads the netting views into a JSON payload and
+  **encrypts** it (PBKDF2-SHA256 200k → AES-256-GCM) using a passphrase from the
+  `DASHBOARD_PASSPHRASE` env var. Only the ciphertext (`dashboard/data.enc.json`)
+  is committed; plaintext is encrypted in memory and never written to disk.
+- `dashboard/` is self-contained (no third-party scripts run beside the
+  decrypted data). It decrypts in-browser via WebCrypto after the user enters
+  the passphrase. Panels: KPIs (net worth, net, savings rate, txn count),
+  accounts, cashflow trend, category/merchant/income breakdowns, recurring
+  payments, housemate ledger, recent feed; budgets + investments are
+  placeholders. A month selector drives the month-specific panels.
+- Refresh = re-run the export, commit `data.enc.json`, push (the Pages workflow
+  redeploys). **Never commit the passphrase**; it is not stored anywhere.
 
 ## Conventions
 
 - Money: signed integer pennies. Negative = money leaving the user.
 - Secrets live in `.env` (gitignored). Never hardcode keys or commit `data/`.
+  The dashboard passphrase (`DASHBOARD_PASSPHRASE`) is a secret too — never put
+  it in code, commits, or docs.
 - Monzo amounts already come in pennies; keep Monzo's raw payload in `raw_json`.
 - When the user corrects a categorisation, prefer turning it into a rule in
-  `classify/rules.py` so the fix sticks.
+  `classify/rules.py` so the fix sticks (see `apply_self_transfers` for the
+  pattern). Add a regression test in `tests/test_rules.py`.
+- After changing data or rules, re-run `python -m src.export_dashboard` to
+  refresh the published dashboard.

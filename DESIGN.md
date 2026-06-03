@@ -81,8 +81,23 @@ views `v_personal_flows` (true money) and `v_housemate_ledger` (who owes what).
 Money is stored as signed integer **pennies** throughout to avoid float errors.
 See `schema.sql`.
 
-## Open decisions
+## Dashboard (decided & built)
 
-- App language for the ingestion + AI glue (proposed: **Python**).
-- Dashboard approach (proposed: a small local web app).
-- Build order — see the next step.
+A static, mobile-friendly dashboard hosted on **GitHub Pages**. Pages is public
+and can't run code, and this is real financial data, so the data is **encrypted
+at rest in the repo**: `src/export_dashboard.py` reads the netting views, builds
+a JSON payload, and encrypts it (PBKDF2-SHA256 → AES-256-GCM) with a passphrase;
+only the ciphertext (`dashboard/data.enc.json`) is published. The page decrypts
+in-browser via WebCrypto. No backend, no third-party scripts beside the
+decrypted data. A future "chat with your finances" feature will need a real
+backend (server-side Python + the Claude API key), which Pages can't host.
+
+## Decisions made
+
+- Language for ingestion + AI glue: **Python** (settled).
+- Dashboard: **encrypted static site on GitHub Pages** (settled; see above).
+
+## Still open
+
+- Live Monzo OAuth sync, and HSBC/Fidelity CSV importers.
+- Hosting for the AI chat layer (needs a backend, unlike the dashboard).
